@@ -66,9 +66,11 @@ def _parse(frame: str):
         return None
 
 
-def stream_turn(session_id: str, turn_input: list[dict]):
+def stream_turn(session_id: str, turn_input: list[dict], previous_turn_id: str | None = None):
     """Start a turn and return its LIVE SSE response (stream=true)."""
     payload = {"input": turn_input, "stream": True}
+    if previous_turn_id:
+        payload["previous_turn_id"] = previous_turn_id
     return _open("POST", f"/api/v1/sessions/{session_id}/turns", payload, sse=True)
 
 

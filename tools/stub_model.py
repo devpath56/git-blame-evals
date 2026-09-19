@@ -10,20 +10,38 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 REPLY = "Ownership is provenance. This reply is stubbed; the trace around it is not."
+SESSION_MARKER = "session="
 
 
-def _completion(model: str) -> dict:
+def _tool_call(messages: list[dict]) -> dict | None:
+    """STUBBED DECISION: a real model CHOOSES to call the tool; this one always
+    does, once, on the first pass. Everything downstream -- the approval pause,
+    the decision, the tool result -- is real TrueForge."""
+    if any(message.get("role") == "tool" for message in messages):
+        return None
+    target = ""
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, str) and SESSION_MARKER in content:
+            target = content.split(SESSION_MARKER, 1)[1].split()[0].strip(".,'\"")
+    if not target:
+        return None
+    arguments = json.dumps({"target_session_id": target})
+    return {"id": f"call-{target[:12]}", "type": "function",
+            "function": {"name": "score_eval", "arguments": arguments}}
+
+
+def _completion(model: str, call: dict | None = None) -> dict:
+    message = {"role": "assistant", "content": None if call else REPLY}
+    if call:
+        message["tool_calls"] = [call]
     return {
         "id": f"chatcmpl-stub-{int(time.time() * 1000)}",
         "object": "chat.completion",
         "created": int(time.time()),
         "model": model,
         "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": REPLY},
-                "finish_reason": "stop",
-            }
+            {"index": 0, "message": message, "finish_reason": "tool_calls" if call else "stop"}
         ],
         "usage": {"prompt_tokens": 32, "completion_tokens": 18, "total_tokens": 50},
     }
@@ -49,11 +67,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("content-length", 0))
         request = json.loads(self.rfile.read(length) or b"{}")
-        payload = _completion(request.get("model", "stub-model"))
+        call = _tool_call(request.get("messages") or []) if request.get("tools") else None
+        payload = _completion(request.get("model", "stub-model"), call)
         if not request.get("stream"):
             return self._send(payload)
         chunk = dict(payload, object="chat.completion.chunk")
-        chunk["choices"] = [{"index": 0, "delta": {"role": "assistant", "content": REPLY}, "finish_reason": "stop"}]
+        delta = {"role": "assistant"}
+        if call:
+            delta["tool_calls"] = [dict(call, index=0)]
+        else:
+            delta["content"] = REPLY
+        chunk["choices"] = [{"index": 0, "delta": delta, "finish_reason": "tool_calls" if call else "stop"}]
         self.send_response(200)
         self.send_header("content-type", "text/event-stream")
         self.send_header("connection", "close")

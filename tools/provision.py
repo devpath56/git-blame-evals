@@ -6,6 +6,24 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import stream  # noqa: E402
 
 PROVIDER, MODEL = "stub", "stub-model"
+MCP_SERVER = "eval-scorer"
+
+
+def ensure_mcp_server() -> None:
+    """Register the approval-gated scoring tool as a remote MCP server."""
+    url = os.environ.get("SCORE_MCP_URL", "").strip()
+    if not url:
+        raise SystemExit("SCORE_MCP_URL is not set -- see README.md")
+    configured = stream.api("GET", "/api/v1/settings/mcp-servers").get("data", [])
+    if any(server.get("name") == MCP_SERVER for server in configured):
+        return
+    manifest = {
+        "type": "remote",
+        "name": MCP_SERVER,
+        "url": url,
+        "description": "Approval-gated eval scoring for the eval-grain auditor",
+    }
+    stream.api("POST", "/api/v1/settings/mcp-servers", {"manifest": manifest})
 
 
 def ensure_provider() -> None:
@@ -35,6 +53,9 @@ def ensure_session(label: str) -> str:
 
 def main() -> None:
     ensure_provider()
+    if "--register-mcp" in sys.argv:
+        ensure_mcp_server()
+        return
     label = sys.argv[1] if len(sys.argv) > 1 else "clean-eval"
     print(ensure_session(label))
 

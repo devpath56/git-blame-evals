@@ -34,6 +34,7 @@ def audit(registry, target_session: str, claimed: list[dict]) -> dict:
         "target": target_session,
         "claimed_events": len(claimed),
         "owned_events": len(owned),
+        "owned_event_ids": [span["event_id"] for span in owned],
         "foreign_events": len(foreign),
         "foreign": foreign,
         "evidence_source": "TrueForge replay",
@@ -70,9 +71,38 @@ def _receipt_dir() -> pathlib.Path:
     return path
 
 
+def receipt_path(target: str, which: str) -> pathlib.Path:
+    return _receipt_dir() / f"{target}-{which.lower()}.json"
+
+
+def record_approval(receipt: dict, decision: dict, tool_results: list[dict]) -> dict:
+    """Record the human decision AND prove the excluded set stayed excluded."""
+    scored: dict = {}
+    for event in tool_results:
+        try:
+            scored = json.loads(event.get("content") or "{}")
+        except json.JSONDecodeError:
+            scored = {"raw": event.get("content")}
+    excluded = [span["event_id"] for span in receipt["foreign"]]
+    scored_ids = set(scored.get("scored_event_ids", []))
+    receipt["approval"] = {
+        "gate": "TrueForge tool.approval_required",
+        "decision": decision["status"],
+        "reason": decision.get("reason"),
+        "excluded_count": len(excluded),
+        "excluded_event_ids": excluded,
+        "scored_event_ids": sorted(scored_ids),
+        "foreign_spans_scored": sorted(scored_ids & set(excluded)),
+        # null, not true, when nothing was scored: vacuous truth reads as a pass
+        "owned_only": None if not scored_ids
+        else (scored_ids <= set(receipt["owned_event_ids"]) and not (scored_ids & set(excluded))),
+    }
+    return receipt
+
+
 def persist(result: dict) -> pathlib.Path:
     """Durable receipt. A verdict nobody can reread is not a verdict."""
-    receipt = _receipt_dir() / f"{result['target']}-{result['verdict'].lower()}.json"
+    receipt = receipt_path(result["target"], result["verdict"])
     receipt.write_text(json.dumps(result, indent=2) + "\n")
     return receipt
 
