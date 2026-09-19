@@ -5,11 +5,13 @@
  * boundaries and the three verdicts are read off TrueForge-Hackathon/auditor, and nothing here is
  * invented.
 
- * AND THE CODE IS IN THIS REPO, which is the whole reason the model lives here: every container
- * names the module that implements it, so checks/stage.mjs judges how far each one has actually
- * got instead of taking a box's word for it. Held in drawing-office the same pointers read FAILED
- * on every rung — "a reader of HEAD does not get this file" — because the property is repo-relative
- * and the code was one repo over.
+ * THE CODE IS IN THIS REPO AND NO BOX POINTS AT IT YET, which is a finding rather than an omission.
+ * The pointers were written and every rung came back `claim-fails`: an implementation with no
+ * preregistered fault set means "the only evidence that src/gate.py does what the box says is that
+ * somebody wrote it". This repo has no tests at all — no test files, no self-checks. So `built` is
+ * not reachable honestly, and ten unbacked claims are worse than none. Add tests, register them in
+ * architecture/redproof.json, then restore `properties { "implementation" ... }` per box and the
+ * rung resolves.
  *
  * THE BUG IT REPRODUCES, CF-262. A label like "LLM call 9" is unique only WITHIN a session. Reuse
  * it as a grouping key across sessions and three runs' spans merge into one claim — and every span
@@ -36,51 +38,15 @@ workspace "git-blame-evals" "Verifies that every span an eval scored actually be
            needing a second decision, which is the rule the control pins. */
         gitBlameEvals = softwareSystem "git-blame-evals" "modified — hover for details. Audits an eval run for trace ownership. Contamination closes as UNEVALUABLE, and a blind spot closes as UNWITNESSED — neither becomes a score." "Modified" {
 
-            audit = container "Audit" "Compares the live stream against the replay and emits exactly one terminal verdict." "Python" {
-                properties {
-                    "implementation" "src/audit.py"
-                }
-            }
-            registry = container "Ownership Registry" "A dict keyed by (session_id, turn_id, event_id). The audit is a membership test against it — nothing more." "Python" {
-                properties {
-                    "implementation" "src/registry.py"
-                }
-            }
-            transport = container "TrueForge Transport" "JSON calls and live SSE ingest. No host or port literal appears in the package; an unset base URL is an error, never a guessed default." "Python" {
-                properties {
-                    "implementation" "src/stream.py"
-                }
-            }
-            grain = container "Eval Grain" "Two grouping strategies over the same replay rows: by event id, which is globally unique, or by label, which is CF-262." "Python" {
-                properties {
-                    "implementation" "src/harness.py"
-                }
-            }
-            contract = container "Verdict Contract" "Exactly one terminal verdict per audit, written once and never mutated. Writes the receipt and appends the ledger from the same value it displayed." "Python" {
-                properties {
-                    "implementation" "src/verdict.py"
-                }
-            }
-            router = container "Approval Router" "Routes UNEVALUABLE to TrueForge's native gate. Prompts and blocks; with no TTY and no flag it refuses to proceed rather than choosing for you." "Python" {
-                properties {
-                    "implementation" "src/gate.py"
-                }
-            }
-            scoreTool = container "score_eval MCP Server" "One approval-gated tool, and the enforcement point: it scores registry-owned spans ONLY, so an approval can never launder a foreign one." "Python · MCP" {
-                properties {
-                    "implementation" "tools/score_mcp.py"
-                }
-            }
-            provisioner = container "Provisioner" "Registers the model provider, an agent, a session, and the remote MCP server." "Python" {
-                properties {
-                    "implementation" "tools/provision.py"
-                }
-            }
-            fixtureBuilder = container "CF-262 Fixture" "Sessions whose span labels collide by construction: every session runs the same number of calls, so 'LLM call 9' exists in all of them and points at a different real event in each." "Python" {
-                properties {
-                    "implementation" "tools/fixture.py"
-                }
-            }
+            audit = container "Audit" "Compares the live stream against the replay and emits exactly one terminal verdict." "Python"
+            registry = container "Ownership Registry" "A dict keyed by (session_id, turn_id, event_id). The audit is a membership test against it — nothing more." "Python"
+            transport = container "TrueForge Transport" "JSON calls and live SSE ingest. No host or port literal appears in the package; an unset base URL is an error, never a guessed default." "Python"
+            grain = container "Eval Grain" "Two grouping strategies over the same replay rows: by event id, which is globally unique, or by label, which is CF-262." "Python"
+            contract = container "Verdict Contract" "Exactly one terminal verdict per audit, written once and never mutated. Writes the receipt and appends the ledger from the same value it displayed." "Python"
+            router = container "Approval Router" "Routes UNEVALUABLE to TrueForge's native gate. Prompts and blocks; with no TTY and no flag it refuses to proceed rather than choosing for you." "Python"
+            scoreTool = container "score_eval MCP Server" "One approval-gated tool, and the enforcement point: it scores registry-owned spans ONLY, so an approval can never launder a foreign one." "Python · MCP"
+            provisioner = container "Provisioner" "Registers the model provider, an agent, a session, and the remote MCP server." "Python"
+            fixtureBuilder = container "CF-262 Fixture" "Sessions whose span labels collide by construction: every session runs the same number of calls, so 'LLM call 9' exists in all of them and points at a different real event in each." "Python"
             /* THE ONE BOX THAT IS NOT THE REAL THING, and it says so in the field the renderer
                prints. The README calls it a LABELED FALLBACK: it stubs the model's TEXT only, while
                every TrueForge object the auditor reads stays real. It is `Modified` rather than
@@ -88,9 +54,6 @@ workspace "git-blame-evals" "Verifies that every span an eval scored actually be
                real provider by pointing at api.openai.com — so this is our content in somebody
                else's extension point, which is exactly what that state means. */
             stubModel = container "Stub Model" "modified — hover for details. A deterministic OpenAI-compatible endpoint that stubs the model's text only; every TrueForge object the auditor reads is real." "Python · HTTP" "Modified" {
-                properties {
-                    "implementation" "tools/stub_model.py"
-                }
                 !adrs adrs-stub
             }
             receiptStore = container "Receipts" "One receipt per run, and receipts/verdicts.jsonl — an append-only ledger where every row cites its receipt." "JSON · JSONL" "Data Store"

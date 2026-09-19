@@ -363,8 +363,7 @@
         "id" : "3",
         "name" : "Audit",
         "properties" : {
-          "structurizr.dsl.identifier" : "audit",
-          "implementation" : "src/audit.py"
+          "structurizr.dsl.identifier" : "audit"
         },
         "relationships" : [ {
           "description" : "Ingests the live turn, then the replay",
@@ -405,8 +404,7 @@
         "id" : "4",
         "name" : "Ownership Registry",
         "properties" : {
-          "structurizr.dsl.identifier" : "registry",
-          "implementation" : "src/registry.py"
+          "structurizr.dsl.identifier" : "registry"
         },
         "tags" : "Element,Container",
         "technology" : "Python"
@@ -416,8 +414,7 @@
         "id" : "5",
         "name" : "TrueForge Transport",
         "properties" : {
-          "structurizr.dsl.identifier" : "transport",
-          "implementation" : "src/stream.py"
+          "structurizr.dsl.identifier" : "transport"
         },
         "relationships" : [ {
           "description" : "Opens the live turn and reads its events",
@@ -448,8 +445,7 @@
         "id" : "6",
         "name" : "Eval Grain",
         "properties" : {
-          "structurizr.dsl.identifier" : "grain",
-          "implementation" : "src/harness.py"
+          "structurizr.dsl.identifier" : "grain"
         },
         "tags" : "Element,Container",
         "technology" : "Python"
@@ -459,8 +455,7 @@
         "id" : "7",
         "name" : "Verdict Contract",
         "properties" : {
-          "structurizr.dsl.identifier" : "contract",
-          "implementation" : "src/verdict.py"
+          "structurizr.dsl.identifier" : "contract"
         },
         "relationships" : [ {
           "description" : "Tests every claimed span for membership",
@@ -483,8 +478,7 @@
         "id" : "8",
         "name" : "Approval Router",
         "properties" : {
-          "structurizr.dsl.identifier" : "router",
-          "implementation" : "src/gate.py"
+          "structurizr.dsl.identifier" : "router"
         },
         "relationships" : [ {
           "description" : "Reads the UNEVALUABLE receipt, and records exactly one decision",
@@ -519,8 +513,7 @@
         "id" : "9",
         "name" : "score_eval MCP Server",
         "properties" : {
-          "structurizr.dsl.identifier" : "scoreTool",
-          "implementation" : "tools/score_mcp.py"
+          "structurizr.dsl.identifier" : "scoreTool"
         },
         "relationships" : [ {
           "description" : "Scores the owned subset only, read from the receipt",
@@ -537,8 +530,7 @@
         "id" : "10",
         "name" : "Provisioner",
         "properties" : {
-          "structurizr.dsl.identifier" : "provisioner",
-          "implementation" : "tools/provision.py"
+          "structurizr.dsl.identifier" : "provisioner"
         },
         "relationships" : [ {
           "description" : "Registers the provider, an agent and a session",
@@ -567,8 +559,7 @@
         "id" : "11",
         "name" : "CF-262 Fixture",
         "properties" : {
-          "structurizr.dsl.identifier" : "fixtureBuilder",
-          "implementation" : "tools/fixture.py"
+          "structurizr.dsl.identifier" : "fixtureBuilder"
         },
         "tags" : "Element,Container",
         "technology" : "Python"
@@ -587,8 +578,7 @@
         "id" : "12",
         "name" : "Stub Model",
         "properties" : {
-          "structurizr.dsl.identifier" : "stubModel",
-          "implementation" : "tools/stub_model.py"
+          "structurizr.dsl.identifier" : "stubModel"
         },
         "tags" : "Element,Container,Modified",
         "technology" : "Python · HTTP"
