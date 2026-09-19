@@ -30,6 +30,24 @@ inside the eval can notice. Only provenance can.
 | event id (`--session`) | **SCORED** — exit 0 |
 | label (`--contaminated`) | **UNEVALUABLE** — exit 2, every foreign span named |
 
+### Three answers, not two
+
+A claimed span the target does not own splits two ways, because they indict
+different parties:
+
+| verdict | means | a fact about |
+|---|---|---|
+| `SCORED` | every claimed span is owned by the target | the eval |
+| `UNEVALUABLE` | at least one span is held under **another session** | the **eval** |
+| `UNWITNESSED` | no span is foreign, but some are **absent from the registry** | the **auditor** |
+
+An empty claim is `UNEVALUABLE` with `reason: "empty claim: nothing to verify"` —
+zero foreign out of zero claimed is not a pass.
+
+`foreign` wins over `unwitnessed` when both are present; the unwitnessed ids are
+still listed under `unwitnessed_event_ids`. Unwitnessed spans carry a null owner
+by construction: the registry never saw them, so there is nobody to name.
+
 ## Scope
 
 Steps 1–3: live ingest, registry, both verdicts, durable ledger, and the native
@@ -205,6 +223,7 @@ SCORED
   claimed_events: 1
   owned_events: 1
   foreign_events: 0
+  unwitnessed_events: 0
   evidence_source: TrueForge replay
 ```
 
@@ -220,6 +239,7 @@ UNEVALUABLE
   claimed_events: 27
   owned_events: 9
   foreign_events: 18
+  unwitnessed_events: 0
   foreign:
     {"label": "LLM call 9", "event_id": "...", "claimed_turn_id": "...",
      "true_session_id": "...", "true_turn_id": "..."}
@@ -234,8 +254,12 @@ TARGET=$(ls -t "$AUDITOR_RECEIPT_DIR"/*-unevaluable.json | head -1 | xargs basen
 AUDITOR_AUTO_DECISION=deny python3 src/gate.py --target "$TARGET" || [ $? -eq 3 ]
 ```
 
-Exit code is `0` for SCORED and `2` for UNEVALUABLE. Each verdict writes a JSON
-receipt and appends to the durable ledger `$AUDITOR_RECEIPT_DIR/verdicts.jsonl`.
+Exit code is `0` for SCORED and `2` for any other verdict. Each verdict writes a
+JSON receipt and appends to the durable ledger `$AUDITOR_RECEIPT_DIR/verdicts.jsonl`.
+
+Ledger rows carry `row_id` and `supersedes`. Append-only keeps every row, so the
+gate's approval row does not replace the verdict row — it supersedes it by id.
+**Counting rows is not counting verdicts; follow the chain.**
 
 The ledger is deliberately **not** written back into TrueForge as synthetic
 events: an auditor must not manufacture provenance inside the store it audits.
