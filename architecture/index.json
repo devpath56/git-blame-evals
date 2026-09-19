@@ -1,0 +1,10 @@
+{
+  "generated": "checks/diagram-contrast.mjs --index",
+  "projects": [
+    {
+      "dir": "git-blame-evals",
+      "name": "git-blame-evals",
+      "description": "Verifies that every span an eval scored actually belongs to the run being scored."
+    }
+  ]
+}

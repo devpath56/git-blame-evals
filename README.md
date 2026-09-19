@@ -53,6 +53,9 @@ by construction: the registry never saw them, so there is nobody to name.
 Steps 1–3: live ingest, registry, both verdicts, durable ledger, and the native
 approval gate. The judge model call is a labeled stub — see **LABELED FALLBACK**.
 
+What this does **not** do, and why, is in **Known limitations** below. Read it
+before trusting a receipt.
+
 ## The approval gate (Step 3)
 
 `UNEVALUABLE` routes to **TrueForge's own** tool-approval flow, not to a prompt
@@ -207,6 +210,86 @@ def gate(receipt: dict, owned_event_ids: list[str]) -> dict:
     Reference: src/gate.py
     """
 ```
+
+## Known limitations
+
+Deliberate deferrals, not oversights. Each was found by advisor review at the
+P1–P5 freeze and ruled out of scope for the surgeries that followed. They are
+recorded here because a limitation whose only trace is a conversation is not a
+disclosure.
+
+### A receipt cannot be retracted
+
+There is no path to a `RETRACTED` state — a reachability walk over the verdict
+lifecycle confirms nothing enters it. If a receipt is wrong (the live stream
+dropped events, so spans the target really owns were reported foreign), nothing
+can withdraw it. The ledger keeps the bad row forever and no later row can
+annul it.
+
+**Not to be confused with `supersedes`.** That field is *row identity* — it
+chains the gate's approval row to the verdict row it followed. It does not mean
+"this row is void"; it means "this row is the newer view of the same target".
+There is no field that means void.
+
+**Bites when:** a demo re-run after a flaky stream leaves a wrong UNEVALUABLE
+on the ledger, and the only remedy is deleting the receipts directory.
+
+### A receipt cannot be re-verified after the run that produced it
+
+The ownership registry is in-memory and dies with the process. `verdict.audit`
+requires a live registry, and there is no verify/recheck entry point. The
+evidence a receipt cites *is* reconstructible from TrueForge replay — that is
+why the IDs are recorded — but nothing in this repo reconstructs it.
+
+**Bites when:** someone asks "prove this receipt tomorrow". The answer today is
+that you would re-run the audit, which produces a *new* receipt over a *new*
+turn, not a check of the old one.
+
+### Ownership has no as-of, and no retention bound is claimed
+
+Ownership is asserted at ingest time. `registry_sessions` records which sessions
+the registry could have seen, and `emitted_at` timestamps the receipt itself,
+but nothing records an as-of for the underlying store or states TrueForge's
+retention. If a session is deleted or compacted, the cited IDs stop resolving
+and no check notices.
+
+**Bites when:** a receipt is audited weeks later against a store that has since
+been pruned. It degrades silently from verifiable to unverifiable.
+
+### A missing grain leg fails closed into "contaminated"
+
+The key is all-or-nothing: `(session_id, turn_id, event_id)`. A span the
+registry demonstrably owns, presented without `turn_id`, returns
+`owned: 0, foreign: 1` — the whole claim reads UNEVALUABLE.
+
+This matters for the plugin interface above. Ownership is in fact decided by
+`session_id` alone (event IDs are globally unique ULIDs, and `resolve()` yields
+the true session without consulting the turn); `turn_id` is carried as evidence
+but is load-bearing in the key. So a harness that cannot supply a stable
+per-turn ID gets *contaminated* — an accusation about the eval — when the
+honest answer is *I cannot evaluate this harness*.
+
+**Bites when:** the first non-TrueForge adapter (Mastra, Agno, VoltAgent) is
+written against a harness with no turn concept, and every clean run reads as
+contamination.
+
+### The score is a ratio, not a judgment
+
+`score_eval` returns `owned / claimed`. There is no judge model call anywhere in
+the approve path — the tool's own response says so in its `note` field. The
+**LABELED FALLBACK** section below covers the separate matter of the model's
+*text* being stubbed.
+
+### Already disclosed elsewhere, listed here so the set is complete
+
+- **The scoring *act* is still the tool's own report.** `owned_only` is anchored
+  in TrueForge replay, which proves every scored ID belongs to the target, not
+  that the tool scored those and only those. Stated in full in
+  `outcome.anchored_in` on every approved receipt, and under the approval gate
+  above.
+- **`AUDITOR_AUTO_DECISION` bypasses the human.** A labeled test affordance for
+  unattended runs, recorded as `decision_source: "auto"`. See the gate section.
+
 
 ## Prerequisites
 

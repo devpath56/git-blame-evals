@@ -6,3 +6,7 @@ __pycache__/
 # design-loop hook output, swept in by git add -A (advisor finding F11)
 .claude/
 intent/
+
+# derived by structurizr-cli export -f static; reproducible, large, unreadable
+architecture/*/site/
+architecture/svg/
