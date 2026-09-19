@@ -2,3 +2,7 @@ receipts/
 __pycache__/
 *.pyc
 .venv/
+
+# design-loop hook output, swept in by git add -A (advisor finding F11)
+.claude/
+intent/
