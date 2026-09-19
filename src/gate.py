@@ -9,13 +9,18 @@ import argparse
 import json
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import stream, verdict  # noqa: E402
 from tools.provision import MODEL, PROVIDER, ensure_provider  # noqa: E402
 
 MCP_SERVER = "eval-scorer"
+ANCHOR = (
+    "TrueForge replay of the target session (independent of this receipt). "
+    "Proves every scored id is an event TrueForge attributes to the target; "
+    "it does not prove the tool scored those and only those -- that remains "
+    "the tool's own report."
+)
 
 
 def open_gate_session() -> str:
@@ -107,8 +112,9 @@ def main() -> int:
     args = parser.parse_args()
 
     receipt = json.loads(verdict.receipt_path(args.target, verdict.UNEVALUABLE).read_text())
-    if receipt.get("approval"):
-        prior = receipt["approval"]
+    before = verdict.verdict_region(receipt)
+    prior = receipt.get("approval") or {}
+    if prior.get("status") in (verdict.APPROVED, verdict.DENIED):
         raise SystemExit(
             f"already decided: {prior['decision']} at {prior.get('decided_at')} -- refusing to "
             "decide twice on one receipt. Re-run the audit to gate a fresh verdict."
@@ -120,16 +126,26 @@ def main() -> int:
         raise SystemExit("gate did not pause -- refusing to score unapproved (see README)")
 
     thread_id, tool_call = pauses[0]
+    verdict.persist(verdict.open_approval(receipt))
     present(receipt, tool_call)
     choice, source = decide(args.reason)
     print(f"\n>>> decision: {choice['status'].upper()}  (source: {source})\n")
 
     approval = [{"type": "user.tool_approval", "thread_id": thread_id, "tool_call_id": tool_call["id"], "approval": choice}]
     _, _, results = drive(session_id, approval, previous_turn_id=turn_id)
-    outcome = verdict.record_approval(receipt, choice, results)
-    outcome["approval"]["decided_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    outcome["approval"]["decision_source"] = source
-    print(json.dumps(outcome["approval"], indent=2))
+
+    # ANCHOR: ownership re-read from TrueForge, not from the receipt being checked.
+    witnessed = {
+        (row.get("event") or {}).get("id")
+        for row in stream.replay_session_events(args.target)
+    } - {None}
+    verdict.record_approval(receipt, choice, results, witnessed, ANCHOR)
+    receipt["approval"]["decision_source"] = source
+
+    if verdict.verdict_region(receipt) != before:
+        raise SystemExit("gate mutated the verdict region -- refusing to write")
+
+    print(json.dumps({"approval": receipt["approval"], "outcome": receipt["outcome"]}, indent=2))
     print(f"\nreceipt: {verdict.persist(receipt)}")
     print(f"ledger : {verdict.log_event(receipt)}")
     return 0 if choice["status"] == "allow" else 3

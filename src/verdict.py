@@ -9,6 +9,22 @@ SCORED = "SCORED"
 UNEVALUABLE = "UNEVALUABLE"
 UNWITNESSED = "UNWITNESSED"
 
+# The receipt holds TWO ORTHOGONAL REGIONS that write disjoint fields.
+#   verdict region  -- written once by audit(), never mutated. Describes the EVAL.
+#   approval region -- written only by the gate. Describes the GATE, not the eval.
+# A row can be in one state from each region at once; that is why a receipt can
+# read UNEVALUABLE and approved together without contradiction.
+PENDING, APPROVED, DENIED = "pending", "approved", "denied"
+
+VERDICT_FIELDS = frozenset({
+    "verdict", "reason", "target", "claimed_events", "owned_events", "owned_event_ids",
+    "foreign_events", "foreign", "unwitnessed_events", "unwitnessed", "unwitnessed_event_ids",
+    "evidence_source", "registry_size", "registry_sessions", "emitted_at",
+    # fixture accounting, also written by the audit run
+    "turn_id", "live_sse_frames", "planted_foreign_events", "foreign_recall",
+})
+APPROVAL_FIELDS = frozenset({"approval", "outcome"})
+
 
 def audit(registry, target_session: str, claimed: list[dict]) -> dict:
     """Membership-test every claimed span against the live ownership registry.
@@ -91,6 +107,10 @@ def render(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
 def _receipt_dir() -> pathlib.Path:
     directory = os.environ.get("AUDITOR_RECEIPT_DIR", "").strip()
     if not directory:
@@ -104,8 +124,32 @@ def receipt_path(target: str, which: str) -> pathlib.Path:
     return _receipt_dir() / f"{target}-{which.lower()}.json"
 
 
-def record_approval(receipt: dict, decision: dict, tool_results: list[dict]) -> dict:
-    """Record the human decision AND prove the excluded set stayed excluded."""
+def open_approval(receipt: dict) -> dict:
+    """The approval region enters `pending`. The verdict region is not touched.
+
+    Written at the pause, so `pending` is a durable state a reader can find --
+    a gate that crashed mid-pause is distinguishable from one never invoked
+    (approval absent entirely).
+    """
+    receipt["approval"] = {
+        "gate": "TrueForge tool.approval_required",
+        "status": PENDING,
+        "opened_at": _now(),
+    }
+    receipt["outcome"] = None
+    return receipt
+
+
+def record_approval(receipt: dict, decision: dict, tool_results: list[dict],
+                    witnessed_ids: set[str], anchor: str) -> dict:
+    """Transition the approval region and, on approve, name the partial outcome.
+
+    THE CHECK IS ANCHORED IN `witnessed_ids`, NOT IN THE RECEIPT. Comparing the
+    tool's report against `owned_event_ids` compared the receipt with a copy of
+    itself routed through the tool, so it could not fail. The caller supplies
+    ownership from TrueForge instead; what that anchor does and does not prove
+    is recorded in `outcome.anchored_in`.
+    """
     scored: dict = {}
     for event in tool_results:
         try:
@@ -114,19 +158,37 @@ def record_approval(receipt: dict, decision: dict, tool_results: list[dict]) -> 
             scored = {"raw": event.get("content")}
     excluded = [span["event_id"] for span in receipt["foreign"]]
     scored_ids = set(scored.get("scored_event_ids", []))
-    receipt["approval"] = {
+    allowed = decision["status"] == "allow"
+
+    receipt["approval"] = dict(receipt.get("approval") or {}, **{
         "gate": "TrueForge tool.approval_required",
+        "status": APPROVED if allowed else DENIED,
         "decision": decision["status"],
         "reason": decision.get("reason"),
-        "excluded_count": len(excluded),
-        "excluded_event_ids": excluded,
+        "decided_at": _now(),
+    })
+
+    if not allowed or not scored_ids:
+        # denied, or approved with nothing scored: no score exists
+        receipt["outcome"] = None
+        return receipt
+
+    receipt["outcome"] = {
+        "type": "partial_score",
         "scored_event_ids": sorted(scored_ids),
+        "excluded_event_ids": excluded,
+        "excluded_count": len(excluded),
+        "score": scored.get("score"),
+        "anchored_in": anchor,
         "foreign_spans_scored": sorted(scored_ids & set(excluded)),
-        # null, not true, when nothing was scored: vacuous truth reads as a pass
-        "owned_only": None if not scored_ids
-        else (scored_ids <= set(receipt["owned_event_ids"]) and not (scored_ids & set(excluded))),
+        "owned_only": scored_ids <= witnessed_ids and not (scored_ids & set(excluded)),
     }
     return receipt
+
+
+def verdict_region(receipt: dict) -> dict:
+    """The fields the verdict region owns, for an unchanged-since check."""
+    return {k: v for k, v in receipt.items() if k in VERDICT_FIELDS}
 
 
 def persist(result: dict) -> pathlib.Path:

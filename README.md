@@ -104,13 +104,61 @@ already decided: deny at 2026-09-19T21:15:03Z -- refusing to decide twice on one
 
 **The gate never launders foreign evidence.** Enforcement lives in the tool, not
 the UI: `score_eval` scores `owned_event_ids` only. Approval permits scoring of
-the owned subset; it cannot widen the set. The receipt records the decision, the
-excluded ids, the scored ids, and `owned_only`.
+the owned subset; it cannot widen the set.
+
+**What `owned_only` is anchored in.** The check re-reads ownership from
+**TrueForge replay of the target session**, not from the receipt being checked —
+comparing the tool's report against the receipt's own `owned_event_ids` compared
+the receipt with a copy of itself and could not fail. The anchor is recorded in
+`outcome.anchored_in`, including its limit: it proves every scored id is an
+event TrueForge attributes to the target, and does **not** prove the tool scored
+those and only those. That remains the tool's own report.
 
 | decision | what happens | receipt | exit |
 |---|---|---|---|
-| **approve** | owned spans scored, foreign excluded | `scored_event_ids` = owned, `foreign_spans_scored: []`, `owned_only: true` | 0 |
-| **reject** | TrueForge returns `User denied tool call: <reason>`; the tool never executes | `scored_event_ids: []`, `owned_only: null` | 3 |
+| **approve** | owned spans scored, foreign excluded | `approval.status: approved`, `outcome.type: partial_score` | 0 |
+| **reject** | TrueForge returns `User denied tool call: <reason>`; the tool never executes | `approval.status: denied`, `outcome: null` | 3 |
+
+### The receipt is two orthogonal regions
+
+A receipt is in one state from **each** region at once. That is why a receipt
+can read `UNEVALUABLE` and `approved` together without contradicting itself:
+the first describes the eval, the second describes the gate.
+
+```text
+          ┌─ verdict region ────────────────────────────┐
+          │  SCORED · UNEVALUABLE · UNWITNESSED         │   written ONCE by audit,
+          │  (terminal; never mutated afterwards)       │   never mutated after
+          └─────────────────────────────────────────────┘
+   ║  parallel
+          ┌─ approval region ───────────────────────────┐
+          │  (absent) ─► pending ─► approved            │   written ONLY by the gate
+          │                      └─► denied             │
+          └─────────────────────────────────────────────┘
+```
+
+`absent` and `pending` are different facts: absent means the gate was never
+invoked, `pending` is written at the pause, so a gate that died mid-pause is
+distinguishable from one that never ran.
+
+**Which region owns which fields** — they are disjoint, and the gate refuses to
+write if the verdict region changed under it:
+
+| region | owns | written by |
+|---|---|---|
+| verdict | `verdict`, `reason`, `target`, `claimed_events`, `owned_events`, `owned_event_ids`, `foreign*`, `unwitnessed*`, `evidence_source`, `registry_*`, `emitted_at`, fixture counters | `src/audit.py` |
+| approval | `approval`, `outcome` | `src/gate.py` |
+
+### The ledger rule
+
+**A score exists if and only if `outcome` is non-null.** Filtering the ledger on
+`verdict == "SCORED"` misses every approved partial **by design** — an approved
+partial keeps its `UNEVALUABLE` verdict, because the eval really did claim
+foreign spans and that fact does not change when a human approves scoring the
+rest. `outcome.type: "partial_score"` names what was actually scored.
+
+Row identity is unchanged: rows carry `row_id` and `supersedes`, and counting
+rows is not counting verdicts.
 
 `owned_only` is `null`, not `true`, when nothing was scored — a vacuous truth
 must not read as a pass.
