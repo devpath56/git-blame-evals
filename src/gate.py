@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import stream, verdict  # noqa: E402
@@ -71,16 +72,47 @@ def present(receipt: dict, tool_call: dict, shown: int = 3) -> None:
     print("=" * 72)
 
 
+def decide(reason: str) -> tuple[dict, str]:
+    """The HUMAN decides. This script never decides on its own.
+
+    Interactive prompt is the real gate. AUDITOR_AUTO_DECISION is a test
+    affordance for timed and unattended runs -- it is recorded as such.
+    """
+    auto = os.environ.get("AUDITOR_AUTO_DECISION", "").strip().lower()
+    if auto in ("allow", "deny"):
+        print(f"  [AUDITOR_AUTO_DECISION={auto}] test affordance -- not a human decision")
+        return _choice(auto, reason), "auto"
+    if not sys.stdin.isatty():
+        raise SystemExit(
+            "no TTY and AUDITOR_AUTO_DECISION is unset -- refusing to decide for you.\n"
+            "Run interactively, or set AUDITOR_AUTO_DECISION=allow|deny for unattended runs."
+        )
+    while True:
+        answer = input("  approve / reject > ").strip().lower()
+        if answer in ("approve", "allow", "a"):
+            return _choice("allow", reason), "human"
+        if answer in ("reject", "deny", "r"):
+            return _choice("deny", reason), "human"
+        print("  type 'approve' or 'reject'")
+
+
+def _choice(status: str, reason: str) -> dict:
+    return {"status": "allow"} if status == "allow" else {"status": "deny", "reason": reason}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Approval gate for an UNEVALUABLE verdict")
     parser.add_argument("--target", required=True, help="Session id with an UNEVALUABLE receipt")
-    decision = parser.add_mutually_exclusive_group(required=True)
-    decision.add_argument("--approve", action="store_true")
-    decision.add_argument("--reject", action="store_true")
     parser.add_argument("--reason", default="foreign spans present; scoring refused")
     args = parser.parse_args()
 
     receipt = json.loads(verdict.receipt_path(args.target, verdict.UNEVALUABLE).read_text())
+    if receipt.get("approval"):
+        prior = receipt["approval"]
+        raise SystemExit(
+            f"already decided: {prior['decision']} at {prior.get('decided_at')} -- refusing to "
+            "decide twice on one receipt. Re-run the audit to gate a fresh verdict."
+        )
     ensure_provider()
     session_id = open_gate_session()
     turn_id, pauses, _ = drive(session_id, [{"type": "user.message", "content": f"Score the evaluation for session={args.target}"}])
@@ -89,16 +121,18 @@ def main() -> int:
 
     thread_id, tool_call = pauses[0]
     present(receipt, tool_call)
-    choice = {"status": "allow"} if args.approve else {"status": "deny", "reason": args.reason}
-    print(f"\n>>> human decision: {choice['status'].upper()}\n")
+    choice, source = decide(args.reason)
+    print(f"\n>>> decision: {choice['status'].upper()}  (source: {source})\n")
 
     approval = [{"type": "user.tool_approval", "thread_id": thread_id, "tool_call_id": tool_call["id"], "approval": choice}]
     _, _, results = drive(session_id, approval, previous_turn_id=turn_id)
     outcome = verdict.record_approval(receipt, choice, results)
+    outcome["approval"]["decided_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    outcome["approval"]["decision_source"] = source
     print(json.dumps(outcome["approval"], indent=2))
     print(f"\nreceipt: {verdict.persist(receipt)}")
     print(f"ledger : {verdict.log_event(receipt)}")
-    return 0 if args.approve else 3
+    return 0 if choice["status"] == "allow" else 3
 
 
 if __name__ == "__main__":

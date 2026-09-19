@@ -31,14 +31,18 @@ set -e
 [ "$contaminated_exit" -eq 2 ] || { echo "expected UNEVALUABLE (exit 2), got $contaminated_exit" >&2; exit 1; }
 TARGET=$(ls -t "$AUDITOR_RECEIPT_DIR"/*-unevaluable.json | head -1 | xargs basename | sed 's/-unevaluable.json//')
 
-echo
-echo "=== approval gate: REJECT -- nothing scores ==="
-set +e; python3 src/gate.py --target "$TARGET" --reject; reject_exit=$?; set -e
-[ "$reject_exit" -eq 3 ] || { echo "expected reject exit 3, got $reject_exit" >&2; exit 1; }
+# Unattended runs need a decision source. This is a TEST AFFORDANCE, not a
+# human decision, and it is recorded as decision_source="auto" in the receipt.
+# The real gate is the interactive prompt -- see README.
+export AUDITOR_AUTO_DECISION="${AUDITOR_AUTO_DECISION:-deny}"
 
 echo
-echo "=== approval gate: APPROVE -- owned spans only ==="
-python3 src/gate.py --target "$TARGET" --approve
+echo "=== approval gate: PAUSE -- exactly one decision this run ==="
+set +e; python3 src/gate.py --target "$TARGET"; gate_exit=$?; set -e
+case "$gate_exit" in
+  0|3) ;;
+  *) echo "gate failed with exit $gate_exit" >&2; exit 1 ;;
+esac
 
 echo
-echo "demo complete: SCORED, UNEVALUABLE, gate rejected, gate approved (owned-only)"
+echo "demo complete: SCORED, UNEVALUABLE, approval pause (decision=$AUDITOR_AUTO_DECISION)"

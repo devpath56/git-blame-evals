@@ -1,4 +1,4 @@
-# TrueForge eval-grain auditor — Steps 1–3
+# TrueForge eval-grain auditor
 
 Verifies that every span an eval scored actually belongs to the run being scored.
 
@@ -46,8 +46,43 @@ pause it:
 2. The agent attaches it with `require_approval_for_tools: ["score_eval"]`.
 3. On the call, TrueForge emits `tool.approval_required` and **pauses the turn**.
 4. The human sees the finding — N foreign spans with their true owner IDs — and
-   answers. The resume is a `user.tool_approval` turn input carrying
-   `{status: "allow" | "deny"}`.
+   **types the decision**. The resume is a `user.tool_approval` turn input
+   carrying `{status: "allow" | "deny"}`.
+
+### The interactive pause IS the gate
+
+`src/gate.py` never decides on its own. It prompts and blocks:
+
+```text
+  approve / reject > reject
+
+>>> decision: DENY  (source: human)
+```
+
+With no TTY and no flag it **refuses to proceed** rather than choosing for you:
+
+```text
+no TTY and AUDITOR_AUTO_DECISION is unset -- refusing to decide for you.
+```
+
+`AUDITOR_AUTO_DECISION=allow|deny` is a **test affordance** for timed and
+unattended runs only. It is not a human decision and is recorded as
+`decision_source: "auto"` in the receipt, against `"human"` for a typed answer.
+The fenced demo block below sets it so the README stays executable unattended.
+
+**Pause wait time never counts against the 10-minute cold-run budget.** The
+clock covers reaching both verdicts and the pause; how long a human deliberates
+is not the tool's latency.
+
+### One decision per receipt
+
+Exactly one decision is recorded per run, written to the verdict receipt and the
+ledger from the same value that was displayed — they cannot diverge. Gating a
+receipt that already carries a decision is refused:
+
+```text
+already decided: deny at 2026-09-19T21:15:03Z -- refusing to decide twice on one receipt.
+```
 
 **The gate never launders foreign evidence.** Enforcement lives in the tool, not
 the UI: `score_eval` scores `owned_event_ids` only. Approval permits scoring of
@@ -62,12 +97,15 @@ excluded ids, the scored ids, and `owned_only`.
 `owned_only` is `null`, not `true`, when nothing was scored — a vacuous truth
 must not read as a pass.
 
+Interactive (the real gate — you type the answer):
+
 ```text
-python3 src/gate.py --target "$TARGET" --approve   # exit 0
-python3 src/gate.py --target "$TARGET" --reject    # exit 3
+python3 src/gate.py --target "$TARGET"
+  approve / reject > approve      # exit 0
+  approve / reject > reject       # exit 3
 ```
 
-Runnable form in **Or each verdict on its own**, below.
+Unattended form in **Or each verdict on its own**, below.
 
 ## Plugin interface (for non-TrueForge harnesses)
 
@@ -119,6 +157,8 @@ export STUB_MODEL_URL=http://localhost:8791/v1
 export AUDITOR_RECEIPT_DIR=./receipts
 export SCORE_MCP_PORT=8792
 export SCORE_MCP_URL=http://localhost:8792/
+# Optional, unattended runs only: allow | deny. Unset = interactive prompt.
+# export AUDITOR_AUTO_DECISION=deny
 curl -sf -m 5 "$TRUEFORGE_BASE_URL/api/v1/sessions" > /dev/null && echo "TrueForge reachable"
 ```
 
@@ -186,12 +226,12 @@ UNEVALUABLE
   next_state: TrueForge approval required
 ```
 
-Then route that UNEVALUABLE verdict through the gate — reject first, then approve:
+Then route that UNEVALUABLE verdict through the gate. Drop
+`AUDITOR_AUTO_DECISION=` to be prompted instead — that is the real gate:
 
 ```bash
 TARGET=$(ls -t "$AUDITOR_RECEIPT_DIR"/*-unevaluable.json | head -1 | xargs basename | sed 's/-unevaluable.json//')
-python3 src/gate.py --target "$TARGET" --reject || [ $? -eq 3 ]
-python3 src/gate.py --target "$TARGET" --approve
+AUDITOR_AUTO_DECISION=deny python3 src/gate.py --target "$TARGET" || [ $? -eq 3 ]
 ```
 
 Exit code is `0` for SCORED and `2` for UNEVALUABLE. Each verdict writes a JSON
@@ -205,8 +245,8 @@ It records the ids needed to reconstruct the evidence from replay.
 
 | file | non-blank LOC | role |
 |---|---|---|
+| `src/gate.py` | 118 | interactive approval gate, decision integrity |
 | `src/verdict.py` | 103 | verdict contract, receipt, ledger, approval record |
-| `src/gate.py` | 89 | TrueForge native approval gate orchestration |
 | `tools/score_mcp.py` | 88 | MCP server: the approval-gated `score_eval` tool |
 | `src/stream.py` | 86 | transport, SSE parser, live ingest, replay |
 | `tools/stub_model.py` | 81 | labeled fallback model + stubbed tool-call decision |
@@ -214,6 +254,6 @@ It records the ids needed to reconstruct the evidence from replay.
 | `src/harness.py` | 57 | the two grouping strategies (event id vs label) |
 | `src/registry.py` | 56 | ownership registry + membership test |
 | `tools/provision.py` | 52 | provider, session and MCP provisioning |
-| `run-demo.sh` | 38 | all four outcomes, one command |
+| `run-demo.sh` | 42 | all three beats, one command |
 | `tools/fixture.py` | 28 | deterministic CF-262 contamination fixture |
-| **total** | **735** | |
+| **total** | **768** | |
