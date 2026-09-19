@@ -84,3 +84,20 @@ def replay_session_events(session_id: str) -> list[dict]:
         token = (page.get("pagination") or {}).get("next_page_token")
         if not token:
             return rows
+
+
+def ingest_live_turn(registry, session_id: str, prompt: str):
+    """Consume the live SSE stream of a new turn straight into the registry.
+
+    Only `turn.created` carries turn_id on the wire; every later event inherits
+    it as ingest context. That is what makes ownership provenance, not payload.
+    """
+    turn_id, frames = None, 0
+    with stream_turn(session_id, [{"type": "user.message", "content": prompt}]) as response:
+        for event in iter_sse(response):
+            frames += 1
+            if event.get("type") == "turn.created":
+                turn_id = event.get("turn_id")
+            if turn_id:
+                registry.record(session_id, turn_id, event)
+    return turn_id, frames
