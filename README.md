@@ -306,6 +306,7 @@ export STUB_MODEL_URL=http://localhost:8791/v1
 export AUDITOR_RECEIPT_DIR=./receipts
 export SCORE_MCP_PORT=8792
 export SCORE_MCP_URL=http://localhost:8792/
+export VIEWER_PORT=8793
 # Optional, unattended runs only: allow | deny. Unset = interactive prompt.
 # export AUDITOR_AUTO_DECISION=deny
 curl -sf -m 5 "$TRUEFORGE_BASE_URL/api/v1/sessions" > /dev/null && echo "TrueForge reachable"

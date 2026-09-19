@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<!--
+  git-blame-evals — the read-only viewer.
+
+  Every number on every screen arrives from tools/viewer.py. Nothing here is
+  hardcoded and nothing here writes: the gate lives in the terminal, which is
+  the whole point — TrueForge's own approval flow, not one this project invented.
+
+  Design tokens below are unchanged from the screen designs.
+-->
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>git-blame-evals</title>
+<style>
+  /* ============ DESIGN TOKENS ============ */
+  :root, [data-theme="light"] {
+    --titlebar: #ececf0;
+    --hairline: #d1d1d6;
+    --bg: #f5f5f7;
+    --card: #ffffff;
+    --card-border: #e4e4e8;
+    --sepline: #ebebee;
+    --ink: #1c1c1e;
+    --muted: #6e6e73;
+    --faint: #8e8e93;
+    --blue: #007aff;
+    --red: #ff3b30;
+    --red-dark: #c81414;
+    --red-tint: #ffecea;
+    --green: #34c759;
+    --green-dark: #1e873c;
+    --green-tint: #e2f6e7;
+    --orange: #ff9500;
+    --orange-dark: #b96400;
+    --orange-tint: #fff0da;
+    --badge: #eeeeF2;
+    --pill-blue-bg: #e2eeff;
+    --pill-blue-fg: #0050c8;
+    --shadow: 0 8px 24px rgba(0,0,0,.08);
+  }
+  [data-theme="dark"] {
+    --titlebar: #323234;
+    --hairline: #3e3e42;
+    --bg: #1e1e20;
+    --card: #2c2c2e;
+    --card-border: #4a4a4e;
+    --sepline: #3a3a3e;
+    --ink: #f5f5f7;
+    --muted: #98989d;
+    --faint: #6e6e73;
+    --blue: #0a84ff;
+    --red: #ff453a;
+    --red-dark: #ff7268;
+    --red-tint: #4a2626;
+    --green: #30d158;
+    --green-dark: #5ae178;
+    --green-tint: #2a4832;
+    --orange: #ff9f0a;
+    --orange-dark: #ffb955;
+    --orange-tint: #523c20;
+    --badge: #3a3a40;
+    --pill-blue-bg: #243c60;
+    --pill-blue-fg: #6eafff;
+    --shadow: 0 8px 24px rgba(0,0,0,.35);
+  }
+
+  /* ============ BASE ============ */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg); color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  :focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; border-radius: 6px; }
+
+  /* ============ WINDOW CHROME ============ */
+  .window { max-width: 1400px; margin: 0 auto 72px; background: var(--bg); }
+  .titlebar {
+    display: flex; align-items: center; height: 68px; padding: 0 64px;
+    background: var(--titlebar); border-bottom: 1px solid var(--hairline);
+    position: relative;
+  }
+  .lights { display: flex; gap: 10px; }
+  .lights span { width: 21px; height: 21px; border-radius: 50%; }
+  .lights .r { background: #ff5f57; border: 1px solid #e0443e; }
+  .lights .y { background: #febc2e; border: 1px solid #df9e1c; }
+  .lights .g { background: #28c840; border: 1px solid #1aab2e; }
+  .titlebar h1 {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    font-size: 17px; font-weight: 700;
+  }
+  .nav { margin-left: auto; display: flex; gap: 10px; }
+  .body { padding: 34px 64px 0; }
+
+  /* ============ SHARED PIECES ============ */
+  .screen-title { font-size: 27px; font-weight: 700; margin-bottom: 6px; }
+  .screen-sub { font-size: 20px; color: var(--muted); margin-bottom: 32px; }
+  .card {
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: 12px; box-shadow: var(--shadow);
+  }
+  .info-card {
+    display: flex; gap: 18px; align-items: flex-start;
+    padding: 26px 36px; font-size: 20px; color: var(--muted); line-height: 1.5;
+  }
+  .info-card .glyph {
+    flex: none; width: 26px; height: 26px; border: 2px solid var(--muted);
+    border-radius: 50%; display: grid; place-items: center;
+    font-size: 17px; font-weight: 700; margin-top: 3px;
+  }
+  .info-card .glyph.warn { border: none; font-size: 24px; margin-top: 0; }
+  .footer { margin-top: 56px; padding-bottom: 40px; font-size: 17px; color: var(--faint); }
+
+  /* Verdict banner: red/green/orange left accent bar */
+  .banner { position: relative; padding: 24px 40px; overflow: hidden; margin-bottom: 24px; }
+  .banner::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 7px; }
+  .banner.red::before { background: var(--red); }
+  .banner.green::before { background: var(--green); }
+  .banner.orange::before { background: var(--orange); }
+  .banner h2 { font-size: 38px; font-weight: 700; margin-bottom: 8px; }
+  .banner.red h2 { color: var(--red-dark); }
+  .banner.green h2 { color: var(--green-dark); }
+  .banner.orange h2 { color: var(--orange-dark); }
+  .banner p { font-size: 22px; margin-bottom: 6px; }
+  .banner .target { font-size: 19px; color: var(--muted); }
+
+  /* Stat cards */
+  .stats { display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr); gap: 24px; margin-bottom: 32px; }
+  .stat { padding: 12px 0 20px; text-align: center; }
+  .stat .num { font-size: 40px; font-weight: 700; }
+  .stat .lbl { font-size: 19px; color: var(--muted); margin-top: 2px; }
+  .stat .num.bad { color: var(--red-dark); }
+  .stat .num.good { color: var(--green-dark); }
+  .stat .num.warn { color: var(--orange-dark); }
+
+  /* Buttons (macOS push buttons) */
+  .btn {
+    display: inline-block; height: 42px; line-height: 42px; padding: 0 28px;
+    border-radius: 9px; font-size: 19px; font-weight: 700; cursor: pointer;
+    border: 1px solid var(--hairline); background: var(--card); color: var(--ink);
+    font-family: inherit;
+  }
+  .btn:hover { background: var(--badge); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .btn.primary:hover { filter: brightness(.92); }
+  .btn.small { height: 34px; line-height: 34px; padding: 0 16px; font-size: 16px; }
+
+  /* Pills */
+  .pill {
+    display: inline-block; height: 32px; line-height: 32px; padding: 0 16px;
+    border-radius: 16px; font-size: 18px; font-weight: 700; white-space: nowrap;
+  }
+  .pill.blue { background: var(--pill-blue-bg); color: var(--pill-blue-fg); }
+  .pill.orange { background: var(--orange-tint); color: var(--orange-dark); }
+  .pill.green { background: var(--green-tint); color: var(--green-dark); }
+  .pill.red { background: var(--red-tint); color: var(--red-dark); }
+  .dash { color: var(--faint); font-size: 20px; }
+
+  /* Tables */
+  table.grid { width: 100%; border-collapse: collapse; }
+  table.grid th {
+    text-align: left; font-size: 17px; font-weight: 700; color: var(--faint);
+    padding: 16px 0 12px;
+  }
+  table.grid td { padding: 11px 0; font-size: 20px; vertical-align: middle; }
+  table.grid tr.hl td { background: var(--red-tint); }
+  table.grid tr.hl td:first-child { border-radius: 8px 0 0 8px; }
+  table.grid tr.hl td:last-child { border-radius: 0 8px 8px 0; }
+  .disclosure { padding: 14px 0 18px; font-size: 19px; color: var(--faint); }
+
+  /* Metrics header — the two numbers the product promises */
+  .metrics { display: flex; gap: 24px; margin-bottom: 24px; flex-wrap: wrap; }
+  .metric { flex: 1 1 320px; padding: 20px 28px; }
+  .metric .mlbl { font-size: 17px; color: var(--faint); font-weight: 700; }
+  .metric .mval { font-size: 32px; font-weight: 700; margin-top: 4px; }
+  .metric .mval.unscorable { font-size: 26px; color: var(--orange-dark); }
+  .metric .mwhy { font-size: 17px; color: var(--muted); margin-top: 4px; }
+
+  .code {
+    background: var(--badge); border-radius: 8px; padding: 14px 18px;
+    font-size: 17px; overflow-x: auto; white-space: pre; color: var(--ink);
+  }
+  .empty { padding: 40px; text-align: center; color: var(--muted); font-size: 20px; }
+</style>
+</head>
+<body>
+
+<div class="window">
+  <div class="titlebar">
+    <div class="lights"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+    <h1>git-blame-evals</h1>
+    <div class="nav">
+      <button class="btn small" data-go="sessions">Sessions</button>
+      <button class="btn small" data-go="ledger">Ledger</button>
+    </div>
+  </div>
+  <div class="body" id="view"></div>
+</div>
+
+<script>
+/* <template> is the parsing context, not <div>: a bare <tr> string assigned to
+   div.innerHTML is discarded by the HTML parser, which returned a text node and
+   broke every table row. template content permits table fragments. */
+const $ = (h) => { const t = document.createElement('template'); t.innerHTML = h.trim(); return t.content.firstElementChild; };
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const short = (s) => s ? esc(String(s).slice(0, 11)) + '…' : '—';
+const time = (s) => s ? esc(String(s).slice(11, 16)) : '—';
+
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok && r.status !== 404) throw new Error(path + ' -> ' + r.status);
+  return r.json();
+}
+
+/* The verdict region decides the banner. The approval region is rendered
+   separately and never folded in: a receipt reads UNEVALUABLE and approved at
+   once without contradicting itself. */
+const TONE = { SCORED: 'green', UNEVALUABLE: 'red', UNWITNESSED: 'orange' };
+const HEAD = { SCORED: 'Verified', UNEVALUABLE: 'Unevaluable', UNWITNESSED: 'Unwitnessed' };
+
+function verdictLine(r) {
+  if (r.verdict === 'SCORED') return `${r.owned_events} of ${r.claimed_events} spans owned — the verdict ships.`;
+  if (r.verdict === 'UNWITNESSED') return `${r.unwitnessed_events} of ${r.claimed_events} spans were never witnessed — the auditor cannot tell.`;
+  if (r.reason) return esc(r.reason);
+  return `${r.foreign_events} of ${r.claimed_events} spans belong to other runs.`;
+}
+
+/* A score exists IFF outcome is non-null. Null renders as an em dash, never as
+   a zero and never as a blank cell. */
+/* ONE place derives the counts, from the raw outcome the API now serves whole.
+   They used to be computed here AND again in run(), which is two homes for one
+   arithmetic and the drift that comes with it. */
+function outcomeCell(o) {
+  if (!o) return '<span class="dash">—</span>';
+  const scored = (o.scored_event_ids || []).length;
+  const excluded = o.excluded_count ?? (o.excluded_event_ids || []).length;
+  return `<span class="pill blue">${esc(o.type)}</span> <span style="color:var(--muted);font-size:18px">`
+       + `${scored} scored / ${excluded} excluded</span>`;
+}
+
+function approvalLine(r) {
+  const a = r.approval;
+  if (!a) {
+    if (r.verdict === 'SCORED') return null;
+    /* Only UNEVALUABLE has a gate. gate.py opens `<target>-unevaluable.json`, so
+       offering this command on an UNWITNESSED run told the reader to run
+       something that cannot succeed. Say what is true instead. */
+    if (r.verdict !== 'UNEVALUABLE') {
+      return { tone: 'warn', text: 'No gate path exists for this verdict. The auditor never witnessed these spans, so there is no owner to rule on — the verdict is terminal.' };
+    }
+    return { tone: 'warn', text: 'Gate not yet invoked. The decision is made in the terminal:',
+             code: `python3 src/gate.py --target ${esc(r.target)}` };
+  }
+  const who = a.decision_source === 'human' ? 'a human' : `${esc(a.decision_source)} (test affordance)`;
+  if (a.status === 'pending') return { tone: 'warn', text: `Gate opened ${esc(a.decided_at || '')} and is still waiting.` };
+  if (a.status === 'denied') return { tone: 'warn', text: `Gate: denied by ${who} — nothing was scored.` };
+  /* A score exists IFF outcome is non-null. Approval alone is not a score:
+     approve with an empty scored set writes outcome null (verdict.py:171), and
+     claiming "the owned subset was scored" there asserts a score that does not
+     exist. The copy is driven off outcome, never off approval.status. */
+  if (!r.outcome) {
+    return { tone: 'warn', text: `Gate: approved by ${who}, but nothing was scored — the tool returned an empty set, so no score exists.` };
+  }
+  return { tone: 'info', text: `Gate: approved by ${who}. The verdict stays ${esc(r.verdict)} — the eval did claim foreign spans, and approval scored the owned subset only.` };
+}
+
+async function sessions() {
+  const runs = await api('/api/runs');
+  const view = document.getElementById('view');
+  view.innerHTML = '';
+  view.append($(`<div><h2 class="screen-title">Sessions</h2>
+    <p class="screen-sub">Audited runs, newest first. Read from receipts on disk — no TrueForge call.</p></div>`));
+
+  if (!runs.length) {
+    view.append($(`<div class="card empty">No runs yet. Run <span class="mono">./run-demo.sh</span>, then reload.</div>`));
+    return;
+  }
+
+  const card = $(`<div class="card" style="padding:6px 36px"><table class="grid"><tbody></tbody></table></div>`);
+  const tbody = card.querySelector('tbody');
+  for (const r of runs) {
+    const dot = r.verdict === 'SCORED' ? 'var(--green)' : r.verdict === 'UNWITNESSED' ? 'var(--orange)' : 'var(--red)';
+    const tr = $(`<tr>
+      <td style="width:36px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${dot}"></span></td>
+      <td><div class="mono" style="font-weight:700">${esc(r.target)}</div>
+          <div style="color:var(--muted);font-size:18px;margin-top:4px">${r.claimed_events} claimed · ${r.owned_events} owned · ${r.foreign_events} foreign</div></td>
+      <td style="text-align:right;white-space:nowrap">
+        <span class="pill ${TONE[r.verdict] === 'green' ? 'green' : TONE[r.verdict] === 'orange' ? 'orange' : 'red'}">${esc(r.verdict)}</span>
+        &nbsp;&nbsp;<button class="btn primary" data-target="${esc(r.target)}">Audit</button></td></tr>`);
+    tr.querySelector('button').onclick = () => navigate('#/run/' + r.target);
+    tbody.append(tr);
+  }
+  view.append(card);
+  view.append($(`<div class="card info-card" style="margin-top:24px"><span class="glyph">i</span>
+    <span>The audit compares every span's owner against the target run. This viewer reads the receipts only — it never writes and never calls TrueForge.</span></div>`));
+  view.append($(`<p class="footer mono">viewer: read-only over $AUDITOR_RECEIPT_DIR · the gate stays in the terminal</p>`));
+}
+
+async function run(target) {
+  const r = await api('/api/runs/' + encodeURIComponent(target));
+  const view = document.getElementById('view');
+  view.innerHTML = '';
+  if (r.error) {
+    view.append($(`<div class="card empty">No receipt for <span class="mono">${esc(target)}</span>.</div>`));
+    return;
+  }
+
+  view.append($(`<div class="card banner ${TONE[r.verdict] || 'orange'}">
+    <h2>${esc(HEAD[r.verdict] || r.verdict)}</h2>
+    <p>${verdictLine(r)}</p>
+    <div class="target mono">target run&nbsp;&nbsp;${esc(r.target)}</div></div>`));
+
+  const unwit = r.unwitnessed_events || 0;
+  const stats = $(`<div class="stats" style="--cols:${unwit ? 4 : 3}"></div>`);
+  const cells = [['claimed', r.claimed_events, ''], ['owned', r.owned_events, r.foreign_events ? '' : 'good'],
+                 ['foreign', r.foreign_events, r.foreign_events ? 'bad' : '']];
+  if (unwit) cells.push(['unwitnessed', unwit, 'warn']);
+  for (const [lbl, num, cls] of cells) {
+    stats.append($(`<div class="card stat"><div class="num ${cls}">${num}</div><div class="lbl">${lbl}</div></div>`));
+  }
+  view.append(stats);
+
+  const ap = approvalLine(r);
+  if (ap) {
+    const block = $(`<div class="card info-card" style="margin-bottom:24px">
+      <span class="glyph ${ap.tone === 'warn' ? 'warn' : ''}" ${ap.tone === 'warn' ? 'style="color:var(--orange-dark)"' : ''}>${ap.tone === 'warn' ? '⚠' : 'i'}</span>
+      <span>${ap.text}${ap.code ? `<div class="code mono" style="margin-top:12px">${ap.code}</div>` : ''}</span></div>`);
+    view.append(block);
+  }
+
+  if (r.outcome) {
+    view.append($(`<div class="card" style="padding:22px 36px;margin-bottom:24px">
+      <div style="font-size:17px;color:var(--faint);font-weight:700">OUTCOME</div>
+      <div style="margin-top:8px">${outcomeCell(r.outcome)}</div>
+      <div style="color:var(--muted);font-size:18px;margin-top:10px">owned_only: <span class="mono">${String(r.outcome.owned_only)}</span>
+        · anchored in ${esc(r.outcome.anchored_in || 'unrecorded')}</div></div>`));
+  }
+
+  const spans = (r.foreign || []).length ? r.foreign : (r.unwitnessed || []);
+  if (spans.length) {
+    const foreign = (r.foreign || []).length > 0;
+    view.append($(`<h2 class="screen-title">${foreign ? 'Foreign spans' : 'Unwitnessed spans'}</h2>`));
+    const card = $(`<div class="card" style="padding:4px 36px 0;margin-top:16px">
+      <table class="grid"><thead><tr><th>Span label</th><th>Event</th><th>True owner</th></tr></thead><tbody></tbody></table>
+      <div class="disclosure">${spans.length} shown · every id above is replay-reconstructible from TrueForge</div></div>`);
+    const tbody = card.querySelector('tbody');
+    for (const s of spans) {
+      tbody.append($(`<tr class="${foreign ? 'hl' : ''}">
+        <td style="font-weight:700">${esc(s.label || '—')}</td>
+        <td class="mono" style="color:var(--muted)">${short(s.event_id)}</td>
+        <td class="mono" style="color:var(--muted)">${s.true_session_id ? 'session ' + short(s.true_session_id) : 'null — never witnessed'}</td></tr>`));
+    }
+    view.append(card);
+  }
+
+  const raw = $(`<div style="margin-top:28px">
+    <button class="btn" id="raw-toggle">View raw receipt</button>
+    <button class="btn" data-go="sessions">Back to sessions</button>
+    <div class="card code mono" id="raw" hidden style="margin-top:16px;max-height:420px;overflow:auto"></div></div>`);
+  raw.querySelector('#raw-toggle').onclick = (e) => {
+    const box = raw.querySelector('#raw');
+    box.hidden = !box.hidden;
+    if (!box.textContent) box.textContent = JSON.stringify(r, null, 2);
+    e.target.textContent = box.hidden ? 'View raw receipt' : 'Hide raw receipt';
+  };
+  view.append(raw);
+  view.append($(`<p class="footer mono">receipt read from $AUDITOR_RECEIPT_DIR · ledger receipts/verdicts.jsonl</p>`));
+}
+
+async function ledger() {
+  const [runs, m] = await Promise.all([api('/api/runs'), api('/api/metrics')]);
+  const view = document.getElementById('view');
+  view.innerHTML = '';
+  view.append($(`<div><h2 class="screen-title">Ledger</h2>
+    <p class="screen-sub">receipts/verdicts.jsonl — one row per run, supersedes-collapsed.</p></div>`));
+
+  const ns = m.north_star, ct = m.counter;
+  view.append($(`<div class="metrics">
+    <div class="card metric"><div class="mlbl">${esc(ns.label).toUpperCase()}</div>
+      ${ns.state === 'UNSCORABLE'
+        ? `<div class="mval unscorable">UNSCORABLE</div><div class="mwhy">${esc(ns.why)}</div>`
+        : `<div class="mval">${esc(ns.text)}</div><div class="mwhy">north star · every planted foreign span detected</div>`}</div>
+    <div class="card metric"><div class="mlbl">${esc(ct.label).toUpperCase()}</div>
+      <div class="mval">${esc(ct.text)}</div>
+      <div class="mwhy">counter metric · a gate that cries wolf gets bypassed</div></div></div>`));
+
+  if (!runs.length) {
+    view.append($(`<div class="card empty">No rows yet. Run <span class="mono">./run-demo.sh</span>, then reload.</div>`));
+    return;
+  }
+
+  const card = $(`<div class="card" style="padding:4px 36px 18px"><table class="grid">
+    <thead><tr><th>run</th><th>verdict</th><th>outcome</th><th>coverage</th><th>foreign</th><th>decided by</th><th></th></tr></thead>
+    <tbody></tbody></table></div>`);
+  const tbody = card.querySelector('tbody');
+  for (const r of runs) {
+    const tone = r.verdict === 'SCORED' ? 'green' : r.verdict === 'UNWITNESSED' ? 'orange' : 'red';
+    const by = r.approval ? `${esc(r.approval.decision_source)}: ${esc(r.approval.decision)}` : 'judge: no gate';
+    const tr = $(`<tr style="border-top:1px solid var(--sepline)">
+      <td class="mono" style="font-weight:700"><button class="btn small" data-target="${esc(r.target)}">${short(r.target)}</button></td>
+      <td><span class="pill ${tone}">${esc(r.verdict)}</span></td>
+      <td>${outcomeCell(r.outcome)}</td>
+      <td style="color:var(--muted)">${r.owned_events}/${r.claimed_events} owned</td>
+      <td style="color:var(--muted)">${r.foreign_events} foreign</td>
+      <td style="color:var(--muted)">${by}</td>
+      <td style="color:var(--faint);text-align:right">${time(r.emitted_at)}</td></tr>`);
+    tr.querySelector('button').onclick = () => navigate('#/run/' + r.target);
+    tbody.append(tr);
+  }
+  view.append(card);
+  view.append($(`<div class="card info-card" style="margin-top:24px"><span class="glyph">i</span>
+    <span>A score exists if and only if <span class="mono">outcome</span> is non-null. An approved partial keeps its UNEVALUABLE verdict — the eval really did claim foreign spans, and a human approving the rest does not change that.</span></div>`));
+  view.append($(`<p class="footer mono">ledger receipts/verdicts.jsonl · append-only · every row cites its receipt</p>`));
+}
+
+function route() {
+  const h = location.hash || '#/sessions';
+  const m = h.match(/^#\/run\/(.+)$/);
+  /* Every view clears #view only after its fetch resolves, which left a blank
+     frame on each navigation. Paint a placeholder first so the window is never
+     empty mid-click. */
+  document.getElementById('view').innerHTML = '<div class="card empty">Reading receipts…</div>';
+  const go = m ? run(decodeURIComponent(m[1])) : h === '#/ledger' ? ledger() : sessions();
+  Promise.resolve(go).catch(e => {
+    document.getElementById('view').innerHTML =
+      `<div class="card empty">Viewer error: ${esc(e.message)}</div>`;
+  });
+}
+
+/* Assigning the hash it already has fires no hashchange, so a second click on
+   the view you are already in used to leave a stale screen behind. Navigate
+   through one function that re-renders directly in that case. */
+function navigate(h) { if (location.hash === h) route(); else location.hash = h; }
+
+document.addEventListener('click', (e) => {
+  const go = e.target.closest('[data-go]');
+  if (go) navigate(go.dataset.go === 'ledger' ? '#/ledger' : '#/sessions');
+});
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
