@@ -1,0 +1,4 @@
+receipts/
+__pycache__/
+*.pyc
+.venv/
